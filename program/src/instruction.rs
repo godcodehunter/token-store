@@ -19,23 +19,26 @@ pub enum TokenMarketInstructions {
     /// 2. `[WRITE]` Bank account that collect gotten token
     /// 3. `[]` Mint that emit token
     /// 4. `[]` Mint of that token we accept for trade
-    /// 5. `[]` Rent sysvar
     Initialize,
     /// Buy tokens
     ///
     /// 0. `[]` Tokens market
-    /// 1. `[]` Tokens holder - token account with tokens for that trade
-    /// 2. `[]` Token holder owner
-    /// 3. `[]` Tokens recipient
-    /// 4. `[]` The token program
+    /// 1. `[]` Bank 
+    /// 2. `[]` Tokens holder - token account with tokens for that trade
+    /// 3. `[]` Token holder owner
+    /// 4. `[]` Tokens recipient
+    /// 5. `[]` The token program
     BuyTokens { amount: u64 },
 }
 
 /// Create `Example` instruction
 pub fn initialize(
     program_id: &Pubkey,
+    owner: &Pubkey,
     market_account: &Pubkey,
-    rent: &Pubkey,
+    bank: &Pubkey,
+    emitter: &Pubkey,
+    acceptable_token: &Pubkey,
 ) -> Result<Instruction, ProgramError> {
     let accounts = vec![AccountMeta::new(*market_account, false)];
 
