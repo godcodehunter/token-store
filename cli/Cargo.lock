@@ -3334,6 +3334,7 @@ dependencies = [
  "solana-client",
  "solana-logger",
  "solana-sdk",
+ "spl-associated-token-account",
  "spl-token",
  "token-market",
 ]

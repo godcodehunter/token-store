@@ -9,7 +9,7 @@ use solana_program::{
 };
 use spl_token::{
     self,
-    instruction::{mint_to, set_authority, transfer},
+    instruction::{initialize_account, initialize_mint, mint_to, set_authority, transfer},
     solana_program::program_pack::IsInitialized,
     state::Account,
 };
@@ -31,17 +31,21 @@ impl Processor {
                 msg!("Instruction: InitMarket");
                 
                 let owner_info = next_account_info(account_info_iter)?;
-                let token_market_info = next_account_info(account_info_iter)?;
+                let fee_payer_info = next_account_info(account_info_iter)?;
+                let market_info = next_account_info(account_info_iter)?;
                 let bank_info = next_account_info(account_info_iter)?;
                 let emitter_info = next_account_info(account_info_iter)?;
-                let accepted_mint_info = next_account_info(account_info_iter)?;
+                let accepted_info = next_account_info(account_info_iter)?;
+                let token_program_info = next_account_info(account_info_iter)?;
                 Self::process_init_market(
                     program_id,
                     owner_info,
-                    token_market_info,
+                    fee_payer_info,
+                    market_info,
                     bank_info,
                     emitter_info,
-                    accepted_mint_info,
+                    accepted_info,
+                    token_program_info,
                 )
             }
             TokenMarketInstructions::BuyTokens { amount } => {
@@ -49,17 +53,15 @@ impl Processor {
 
                 let token_market_info = next_account_info(account_info_iter)?;
                 let bank_info = next_account_info(account_info_iter)?;
-                let holder_info = next_account_info(account_info_iter)?;
-                let holder_owner = next_account_info(account_info_iter)?;
-                let recipient = next_account_info(account_info_iter)?;
+                let recipient_info = next_account_info(account_info_iter)?;
+                let write_off_acc_info = next_account_info(account_info_iter)?;
                 let token_program = next_account_info(account_info_iter)?;
                 Self::process_buy_tokens(
                     program_id,
                     token_market_info,
                     bank_info,
-                    holder_info,
-                    holder_owner,
-                    recipient,
+                    recipient_info,
+                    write_off_acc_info,
                     token_program,
                     amount,
                 )
@@ -71,49 +73,74 @@ impl Processor {
     pub fn process_init_market(
         program_id: &Pubkey,
         owner_info: &AccountInfo,
-        mut token_market_info: &AccountInfo,
+        fee_payer_info: &AccountInfo,
+        market_info: &AccountInfo,
         bank_info: &AccountInfo,
         emitter_info: &AccountInfo,
         accepted_mint_info: &AccountInfo,
+        token_program_info: &AccountInfo,
     ) -> ProgramResult {
-        let token_market = TokenMarket::try_from_slice(&token_market_info.data.borrow())?;
+        let token_market = TokenMarket::try_from_slice(&market_info.data.borrow())?;
         if token_market.is_initialized() {
             return Err(ProgramError::AccountAlreadyInitialized);
         }
 
+        let authority = Pubkey::find_program_address(&[b"token-market"], program_id).0;
+
+        invoke(
+            &initialize_account(
+                token_program_info.key,
+                &bank_info.key,
+                accepted_mint_info.key,
+                &authority,
+            )?,
+            &[]
+        )?;
+
+        invoke(
+            &initialize_mint(
+                token_program_info.key,
+                emitter_info.key,
+                &authority,
+                Some(&authority),
+                todo!(),
+            )?,
+            &[]
+        )?;
+
+
         TokenMarket {
             is_initialized: true,
-            token_bank: *bank_info.key,
-            tradable_token_mint: *emitter_info.key,
-            authority: Pubkey::find_program_address(&[b"token-market"], program_id).0,
-            accept_token_mint: *accepted_mint_info.key,
+            owner: *owner_info.key,
+            bank: *bank_info.key,
+            emitter_mint: *emitter_info.key,
+            authority: authority,
+            mint_of_acceptable: *accepted_mint_info.key,
         }
-        .serialize(&mut *token_market_info.data.borrow_mut())?;
+        .serialize(&mut *market_info.data.borrow_mut())?;
 
         Ok(())
     }
 
     pub fn process_buy_tokens<'accounts>(
         program_id: &Pubkey,
-        token_market_info: &'accounts AccountInfo<'accounts>,
-        bank_info: &AccountInfo<'accounts>,
-        holder_info: &AccountInfo<'accounts>,
-        holder_owner: &AccountInfo<'accounts>,
+        market_info: &'accounts AccountInfo<'accounts>,
+        bank_info: &'accounts AccountInfo<'accounts>,
         recipient: &AccountInfo<'accounts>,
+        write_off_acc_info: &AccountInfo<'accounts>,
         token_program: &'accounts AccountInfo<'accounts>,
         amount: u64,
     ) -> ProgramResult {
-        let token_market = TokenMarket::try_from_slice(*token_market_info.data.borrow())?;
+        let token_market = TokenMarket::try_from_slice(*market_info.data.borrow())?;
         if !token_market.is_initialized() {
             return Err(ProgramError::UninitializedAccount);
         }
 
-        let holder_acc = Account::unpack_from_slice(*holder_info.data.borrow())?;
-        if !holder_acc.is_initialized() {
+        let write_off_acc = Account::unpack_from_slice(*write_off_acc_info.data.borrow())?;
+        if !write_off_acc.is_initialized() {
             return Err(ProgramError::UninitializedAccount);
         }
-
-        if holder_acc.mint != token_market.accept_token_mint {
+        if write_off_acc.mint != token_market.mint_of_acceptable {
             return Err(ProgramError::InvalidAccountData);
         }
 
@@ -121,89 +148,47 @@ impl Processor {
         if !recipient_acc.is_initialized() {
             return Err(ProgramError::UninitializedAccount);
         }
-        if recipient_acc.mint != token_market.tradable_token_mint {
+        if recipient_acc.mint != token_market.emitter_mint {
             return Err(ProgramError::InvalidAccountData);
         }
 
         // check that there are enough tokens to exchange the requested number of tokens
-        if holder_acc.amount < amount {
+        if write_off_acc.amount < amount {
             return Err(ProgramError::InsufficientFunds);
         }
-
-        invoke(
-            &set_authority(
-                &token_program.key,
-                holder_info.key,
-                Some(&token_market.authority),
-                spl_token::instruction::AuthorityType::AccountOwner,
-                &holder_owner.key,
-                &[&holder_owner.key],
-            )?,
-            &[
-                holder_info.clone(),
-                holder_owner.clone(),
-                token_program.clone(),
-            ],
-        )?;
-
-        Self::swap_tokens(
-            token_program,
-            token_market,
-            token_market_info,
-            holder_owner,
-            holder_info,
-            bank_info,
-            recipient,
-            amount,
-        )?;
-
-        Ok(())
-    }
-
-    fn swap_tokens<'accounts>(
-        token_program: &'accounts AccountInfo<'accounts>,
-        token_market: TokenMarket,
-        token_market_info: &'accounts AccountInfo<'accounts>,
-        mut holder_owner: &AccountInfo<'accounts>,
-        mut holder_info: &AccountInfo<'accounts>,
-        bank_info: &AccountInfo<'accounts>,
-        recipient: &AccountInfo<'accounts>,
-        amount: u64,
-    ) -> Result<(), ProgramError> {
+        
         invoke(
             &transfer(
                 &token_program.key,
-                holder_info.key,
-                &token_market.token_bank,
+                write_off_acc_info.key,
+                &token_market.bank,
                 &token_market.authority,
                 &[&token_market.authority],
                 amount,
             )?,
             &[
                 token_program.clone(),
-                holder_info.clone(),
+                write_off_acc_info.clone(),
                 bank_info.clone(),
             ],
         )?;
 
-        **holder_owner.lamports.borrow_mut() += holder_info.lamports();
-        **holder_info.lamports.borrow_mut() = 0;
-
         invoke(
             &mint_to(
                 &token_program.key,
-                &token_market.tradable_token_mint,
+                &token_market.emitter_mint,
                 &recipient.key,
-                &token_market.tradable_token_mint,
+                &token_market.authority,
                 &[&token_market.authority],
                 amount,
             )?,
             &[
                 token_program.clone(),
-                token_market_info.clone(),
+                market_info.clone(),
                 recipient.clone(),
             ],
         )?;
+
         Ok(())
     }
 }
