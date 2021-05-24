@@ -3318,7 +3318,6 @@ dependencies = [
  "num-traits",
  "num_enum",
  "solana-program",
- "solana-sdk",
  "spl-token",
  "thiserror",
 ]
@@ -3327,12 +3326,15 @@ dependencies = [
 name = "token-market-cli"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "borsh",
  "clap",
  "solana-clap-utils",
  "solana-cli-config",
  "solana-client",
  "solana-logger",
  "solana-sdk",
+ "spl-token",
  "token-market",
 ]
 

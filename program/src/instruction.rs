@@ -23,7 +23,7 @@ pub enum TokenMarketInstructions {
     /// Buy tokens
     ///
     /// 0. `[]` Tokens market
-    /// 1. `[]` Bank 
+    /// 1. `[]` Bank
     /// 2. `[]` Tokens holder - token account with tokens for that trade
     /// 3. `[]` Token holder owner
     /// 4. `[]` Tokens recipient
@@ -40,7 +40,13 @@ pub fn initialize(
     emitter: &Pubkey,
     acceptable_token: &Pubkey,
 ) -> Result<Instruction, ProgramError> {
-    let accounts = vec![AccountMeta::new(*market_account, false)];
+    let accounts = vec![
+        AccountMeta::new(*owner, false),
+        AccountMeta::new(*market_account, false),
+        AccountMeta::new(*bank, false),
+        AccountMeta::new(*emitter, false),
+        AccountMeta::new(*acceptable_token, false),
+    ];
 
     Ok(Instruction::new_with_borsh(
         *program_id,

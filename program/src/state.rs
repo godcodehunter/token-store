@@ -13,7 +13,7 @@ pub struct TokenMarket {
 }
 
 impl TokenMarket {
-    pub const LEN: usize = 32*4 + 1;
+    pub const LEN: usize = 32 * 4 + 1;
 }
 
 impl IsInitialized for TokenMarket {
