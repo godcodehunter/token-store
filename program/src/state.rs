@@ -9,12 +9,11 @@ pub struct TokenMarket {
     pub owner: Pubkey,
     pub bank: Pubkey,
     pub emitter_mint: Pubkey,
-    pub authority: Pubkey,
     pub mint_of_acceptable: Pubkey,
 }
 
 impl TokenMarket {
-    pub const LEN: usize = 32 * 5 + 1;
+    pub const LEN: usize = 32*4 + 1;
 }
 
 impl IsInitialized for TokenMarket {

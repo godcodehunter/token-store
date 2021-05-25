@@ -50,21 +50,21 @@ fn create_market(config: &Config, mint_acceptable: Pubkey) -> Result<()> {
             &bank.pubkey(),
             Rent::default().minimum_balance(Account::LEN),
             Account::LEN as u64,
-            &token_market::id(),
+            &spl_token::id(),
         ),
         create_account(
             &config.fee_payer.pubkey(),
             &emitter.pubkey(),
             Rent::default().minimum_balance(Mint::LEN),
             Mint::LEN as u64,
-            &token_market::id(),
+            &spl_token::id(),
         ),
         instruction::initialize(
             &token_market::id(),
             &config.owner.pubkey(),
+            &config.fee_payer.pubkey(),
             &market.pubkey(),
             &bank.pubkey(),
-            &emitter.pubkey(),
             &emitter.pubkey(),
             &mint_acceptable,
             &spl_token::id(),
@@ -75,8 +75,9 @@ fn create_market(config: &Config, mint_acceptable: Pubkey) -> Result<()> {
     let (recent_blockhash, fee_calculator) = config.rpc_client.get_recent_blockhash()?;
     let signers = vec![
         config.fee_payer.as_ref(), 
-        config.owner.as_ref(), 
         &market as &dyn Signer,
+        &bank as &dyn Signer,
+        &emitter as &dyn Signer, 
     ];
     ts.sign(&signers, recent_blockhash);
     config
@@ -96,8 +97,6 @@ fn create_market(config: &Config, mint_acceptable: Pubkey) -> Result<()> {
 fn buy_tokens(config: &Config, market: Pubkey, recipient: Pubkey, amount: u64) -> Result<()> {
     println!("Buying tokens...");
 
-    let mut instructions = vec![];
-
     let market_data = config.rpc_client.get_account_data(&market)?;
     let token_market = TokenMarket::try_from_slice(market_data.as_slice())?;
 
@@ -113,10 +112,10 @@ fn buy_tokens(config: &Config, market: Pubkey, recipient: Pubkey, amount: u64) -
         &token_market.mint_of_acceptable,
     );
 
-    instructions.extend_from_slice(&[
+    let instructions = &[
         spl_token::instruction::approve(
             &token_market::id(),
-            &recipient,
+            &write_off_account,
             &token_market::id(),
             &config.owner.pubkey(),
             &[],
@@ -131,13 +130,17 @@ fn buy_tokens(config: &Config, market: Pubkey, recipient: Pubkey, amount: u64) -
             &token_market::id(),
             amount,
         )?,
-    ]);
+    ];
 
-    let message = Message::new(instructions.as_slice(), Some(&config.fee_payer.pubkey()));
-    let transaction = Transaction::new_unsigned(message);
+    let mut ts = Transaction::new_with_payer(instructions.as_ref(), Some(&config.fee_payer.pubkey()));
+    let (recent_blockhash, fee_calculator) = config.rpc_client.get_recent_blockhash()?;
+    let signers = vec![
+        config.fee_payer.as_ref(), 
+    ];
+    ts.sign(&signers, recent_blockhash);
     config
         .rpc_client
-        .send_and_confirm_transaction_with_spinner(&transaction)?;
+        .send_and_confirm_transaction_with_spinner(&ts)?;
 
     println!(
         "Purchased {} tokens. Recipient user {}. Target ATA {}",
@@ -272,9 +275,8 @@ fn main() -> Result<()> {
         ("buy-tokens", Some(args)) => {
             let market = pubkey_of(args, "market").unwrap();
             let recipient = pubkey_of(args, "recipient").unwrap();
-            let mv = matches.value_of("amount");
-            dbg!(market, recipient, mv);
-            let amount = value_t!(matches.value_of("amount"), u64)
+            let mv = args.value_of("amount");
+            let amount = value_t!(args.value_of("amount"), u64)
                 .expect("Can't parse amount, it is must present like integer");
 
             buy_tokens(config, market, recipient, amount)
