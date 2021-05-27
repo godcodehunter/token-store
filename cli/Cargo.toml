@@ -13,7 +13,7 @@ solana-cli-config = "1.5.0"
 solana-clap-utils = "1.5.0"
 solana-logger = "1.5.0"
 solana-client = "1.5.0"
-token-market = { path="../program", features = [ "no-entrypoint" ] }
+token-market = { path="../program", features = [ "rust-lib" ] }
 solana-sdk = "1.6.6"
 borsh = "0.8.2"
 anyhow = "1.0.36"

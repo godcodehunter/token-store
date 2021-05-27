@@ -4,7 +4,14 @@ use solana_program::{
     system_program,
     program_pack::Pack,
 };
-use token_market::{*, state::*, processor::*};
+use token_market::{
+    id,
+    instruction::{
+        transaction_initialize,
+        transaction_buy_tokens,
+    },
+    processor::Processor,
+};
 use spl_token::state::{Account, Mint};
 use solana_program_test::*;
 use solana_sdk::{
@@ -23,108 +30,6 @@ fn program_test() -> ProgramTest {
         id(),
         processor!(Processor::process_instruction),
     )
-}
-
-fn create_market(
-    recent_blockhash: Hash,
-    payer: &Keypair, 
-    owner: &Pubkey, 
-    market: &Keypair,
-    authority: &Pubkey,
-    bank: &Keypair,
-    emitter: &Keypair,
-    mint_of_acceptable: &Pubkey,
-) -> Transaction {
-    let instructions = &[
-        create_account(
-            &payer.pubkey(),
-            &market.pubkey(),
-            Rent::default().minimum_balance(TokenMarket::LEN),
-            TokenMarket::LEN as u64,
-            &token_market::id(),
-        ),
-        create_account(
-            &payer.pubkey(),
-            &bank.pubkey(),
-            Rent::default().minimum_balance(Account::LEN),
-            Account::LEN as u64,
-            &spl_token::id(),
-        ),
-        create_account(
-            &payer.pubkey(),
-            &emitter.pubkey(),
-            Rent::default().minimum_balance(Mint::LEN),
-            Mint::LEN as u64,
-            &spl_token::id(),
-        ),
-        instruction::initialize(
-            &token_market::id(),
-            owner,
-            &market.pubkey(),
-            authority,
-            &bank.pubkey(),
-            &emitter.pubkey(),
-            mint_of_acceptable,
-            &spl_token::id(),
-        ).unwrap(),
-    ];
-
-    let mut ts = Transaction::new_with_payer(
-        instructions, 
-        Some(&payer.pubkey())
-    );
-    let signers = &vec![
-        payer as &dyn Signer,
-        market as &dyn Signer,
-        bank as &dyn Signer,
-        emitter as &dyn Signer,
-    ];
-    ts.sign(signers, recent_blockhash);
-    
-    ts
-}
-
-fn buy_tokens(
-    recent_blockhash: Hash,
-    fee_payer: Keypair,
-    buyer: Keypair,
-    market: Pubkey, 
-    market_authority: Pubkey, 
-    emitter: Pubkey, 
-    bank: Pubkey,
-    recipient_account: Pubkey,
-    write_off_account: Pubkey,
-    amount: u64,
-) -> Transaction {
-    let instructions = &[
-        spl_token::instruction::approve(
-            &spl_token::id(),
-            &write_off_account,
-            &market_authority,
-            &buyer.pubkey(),
-            &[&buyer.pubkey()],
-            amount,
-        ).unwrap(),
-        instruction::buy_tokens(
-            &token_market::id(),
-            &market,
-            &market_authority,
-            &emitter,
-            &bank,
-            &recipient_account,
-            &write_off_account,
-            &spl_token::id(),
-            amount,
-        ).unwrap(),
-    ];
-
-    let mut ts = Transaction::new_with_payer(
-        instructions, 
-        Some(&fee_payer.pubkey())
-    );
-    ts.sign(&vec![&fee_payer, &buyer], recent_blockhash);
-
-    ts
 }
 
 /// Create owner market account and acceptable token mint 
@@ -173,7 +78,7 @@ fn preparation_test_create_market(
 
 #[tokio::test]
 async fn test_create_market() {
-    let mut pt = program_test();
+    let pt = program_test();
     let (mut banks_client, payer, recent_blockhash) = pt.start().await;
 
     let owner = Keypair::new();
@@ -186,7 +91,7 @@ async fn test_create_market() {
         &token_market::id(),
     ).unwrap();
 
-    let mut ts = preparation_test_create_market(
+    let ts = preparation_test_create_market(
         recent_blockhash,
         &payer,
         &owner,
@@ -194,7 +99,7 @@ async fn test_create_market() {
     );
     banks_client.process_transaction(ts).await.unwrap();
     
-    let mut ts = create_market(
+    let ts = transaction_initialize(
         recent_blockhash,
         &payer, 
         &owner.pubkey(), 
@@ -214,7 +119,6 @@ fn preparation_test_buy_tokens(
     buyer: &Keypair, 
     recipient: &Keypair,
     mint_of_acceptable: &Pubkey,
-    mit_authority: &Pubkey,
     emitter: &Pubkey,
     write_off_account: &Keypair,
     recipient_account: &Keypair,
@@ -304,12 +208,11 @@ async fn test_buy_tokens() {
     let emitter = Keypair::new();
     let bank = Keypair::new();
     let mint_of_acceptable = Keypair::new();
-    let mint_authority = Keypair::new();
     let write_off_account = Keypair::new();
     let recipient_account = Keypair::new();
     let amount = 70;
 
-    let mut ts = preparation_test_create_market(
+    let ts = preparation_test_create_market(
         recent_blockhash,
         &payer,
         &owner,
@@ -317,7 +220,7 @@ async fn test_buy_tokens() {
     );
     banks_client.process_transaction(ts).await.unwrap();
     
-    let mut ts = create_market(
+    let ts = transaction_initialize(
         recent_blockhash,
         &payer, 
         &owner.pubkey(), 
@@ -329,21 +232,20 @@ async fn test_buy_tokens() {
     );
     banks_client.process_transaction(ts).await.unwrap();
 
-    let mut ts = preparation_test_buy_tokens(
+    let ts = preparation_test_buy_tokens(
         recent_blockhash,
         &owner,
         &payer, 
         &buyer, 
         &recipient, 
         &mint_of_acceptable.pubkey(), 
-        &mint_authority.pubkey(),
         &emitter.pubkey(),
         &write_off_account,
         &recipient_account,
     );
     banks_client.process_transaction(ts).await.unwrap();
 
-    let mut ts = buy_tokens(
+    let ts = transaction_buy_tokens(
         recent_blockhash,
         payer,
         buyer,

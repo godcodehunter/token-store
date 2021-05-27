@@ -5,7 +5,8 @@ edition = "2018"
 
 [features]
 no-entrypoint = []
-test-bpf = []
+test-bpf = [ "solana-sdk" ]
+rust-lib = [ "solana-sdk", "no-entrypoint" ]
 
 [dependencies]
 num-derive = "0.3"
@@ -15,6 +16,7 @@ solana-program = "1.6.6"
 thiserror = "1.0"
 borsh = "0.8.2"
 spl-token = { version = "3.1.0", features = [ "no-entrypoint" ] }
+solana-sdk = { version = "1.6.6", optional = true }
 
 [dev-dependencies]
 solana-program-test = "1.6.6"

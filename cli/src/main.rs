@@ -22,7 +22,13 @@ use solana_sdk::{
 };
 use spl_token::state::{Account, Mint};
 use std::str::FromStr;
-use token_market::{instruction, state::TokenMarket};
+use token_market::{
+    instruction::{
+        transaction_initialize,
+        transaction_buy_tokens,
+    }, 
+    state::TokenMarket,
+};
 
 struct Config {
     owner: Box<dyn Signer>,
@@ -30,56 +36,27 @@ struct Config {
     rpc_client: RpcClient,
 }
 
-fn create_market(config: &Config, mint_acceptable: Pubkey) -> Result<()> {
+fn create_market(config: &Config, mint_of_acceptable: Pubkey) -> Result<()> {
     println!("Creating market...");
 
     let market = Keypair::new();
     let bank = Keypair::new();
     let emitter = Keypair::new();
+    let market_authority = Pubkey::create_program_address(
+        &[b"tmarket"], 
+        &token_market::id(),
+    ).unwrap();
 
-    let instructions = &[
-        create_account(
-            &config.fee_payer.pubkey(),
-            &market.pubkey(),
-            Rent::default().minimum_balance(TokenMarket::LEN),
-            TokenMarket::LEN as u64,
-            &token_market::id(),
-        ),
-        create_account(
-            &config.fee_payer.pubkey(),
-            &bank.pubkey(),
-            Rent::default().minimum_balance(Account::LEN),
-            Account::LEN as u64,
-            &spl_token::id(),
-        ),
-        create_account(
-            &config.fee_payer.pubkey(),
-            &emitter.pubkey(),
-            Rent::default().minimum_balance(Mint::LEN),
-            Mint::LEN as u64,
-            &spl_token::id(),
-        ),
-        instruction::initialize(
-            &token_market::id(),
-            &config.owner.pubkey(),
-            &config.fee_payer.pubkey(),
-            &market.pubkey(),
-            &bank.pubkey(),
-            &emitter.pubkey(),
-            &mint_acceptable,
-            &spl_token::id(),
-        )?,
-    ];
-
-    let mut ts = Transaction::new_with_payer(instructions, Some(&config.fee_payer.pubkey()));
-    let (recent_blockhash, fee_calculator) = config.rpc_client.get_recent_blockhash()?;
-    let signers = vec![
-        config.fee_payer.as_ref(), 
-        &market as &dyn Signer,
-        &bank as &dyn Signer,
-        &emitter as &dyn Signer, 
-    ];
-    ts.sign(&signers, recent_blockhash);
+    let ts = transaction_initialize(
+        todo!(),
+        config.fee_payer,
+        config.owner,
+        &market,
+        &market_authority,
+        &bank,
+        &emitter,
+        &mint_of_acceptable,
+    );    
     config
         .rpc_client
         .send_and_confirm_transaction_with_spinner(&ts)?;
@@ -87,7 +64,7 @@ fn create_market(config: &Config, mint_acceptable: Pubkey) -> Result<()> {
     println!(
         "Market created: market {}, accepted tokens: {}, tradable tokens: {}, bank: {}",
         market.pubkey(),
-        mint_acceptable,
+        mint_of_acceptable,
         emitter.pubkey(),
         bank.pubkey()
     );
@@ -99,10 +76,14 @@ fn buy_tokens(config: &Config, market: Pubkey, recipient: Pubkey, amount: u64) -
 
     let market_data = config.rpc_client.get_account_data(&market)?;
     let token_market = TokenMarket::try_from_slice(market_data.as_slice())?;
+    let market_authority = Pubkey::create_program_address(
+        &[b"tmarket"], 
+        &token_market::id(),
+    ).unwrap();
 
     // Finding a suitable account for placement of purchased tokens.
     // If suitable account is not found - create it.
-    let recipient_acc = spl_associated_token_account::get_associated_token_address(
+    let recipient_account = spl_associated_token_account::get_associated_token_address(
         &recipient,
         &token_market.emitter_mint,
     );
@@ -112,39 +93,25 @@ fn buy_tokens(config: &Config, market: Pubkey, recipient: Pubkey, amount: u64) -
         &token_market.mint_of_acceptable,
     );
 
-    let instructions = &[
-        spl_token::instruction::approve(
-            &token_market::id(),
-            &write_off_account,
-            &token_market::id(),
-            &config.owner.pubkey(),
-            &[],
-            amount,
-        )?,
-        instruction::buy_tokens(
-            &token_market::id(),
-            &market,
-            &token_market.bank,
-            &recipient_acc,
-            &write_off_account,
-            &token_market::id(),
-            amount,
-        )?,
-    ];
-
-    let mut ts = Transaction::new_with_payer(instructions.as_ref(), Some(&config.fee_payer.pubkey()));
-    let (recent_blockhash, fee_calculator) = config.rpc_client.get_recent_blockhash()?;
-    let signers = vec![
-        config.fee_payer.as_ref(), 
-    ];
-    ts.sign(&signers, recent_blockhash);
+    let ts = transaction_buy_tokens(
+        todo!(),
+        config.fee_payer,
+        config.fee_payer,
+        market,
+        market_authority,
+        token_market.emitter_mint,
+        token_market.bank,
+        recipient_account,
+        write_off_account,
+        amount,
+    );
     config
         .rpc_client
         .send_and_confirm_transaction_with_spinner(&ts)?;
 
     println!(
         "Purchased {} tokens. Recipient user {}. Target ATA {}",
-        amount, recipient, recipient_acc
+        amount, recipient, recipient_account
     );
     Ok(())
 }
