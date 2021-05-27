@@ -1,4 +1,6 @@
 #![cfg(feature = "test-bpf")]
+#![feature(slice_pattern)]
+use core::slice::SlicePattern;
 
 use solana_program::{
     system_program,
@@ -83,13 +85,13 @@ async fn test_create_market() {
 
     let owner = Keypair::new();
     let market = Keypair::new();
+    let market_authority = Pubkey::find_program_address(
+        &[&market.pubkey().to_bytes()[..32]],
+        &token_market::id(),
+    ).0;
     let bank = Keypair::new();
     let emitter = Keypair::new();
     let mint_of_acceptable = Keypair::new();
-    let market_authority = Pubkey::create_program_address(
-        &[b"tmarket"], 
-        &token_market::id(),
-    ).unwrap();
 
     let ts = preparation_test_create_market(
         recent_blockhash,
@@ -199,10 +201,10 @@ async fn test_buy_tokens() {
     
     let owner = Keypair::new();
     let market = Keypair::new();
-    let market_authority = Pubkey::create_program_address(
-        &[b"tmarket"], 
+    let market_authority = Pubkey::find_program_address(
+        &[&market.pubkey().to_bytes()[..32]], 
         &token_market::id(),
-    ).unwrap();
+    ).0;
     let buyer = Keypair::new();
     let recipient = Keypair::new();
     let emitter = Keypair::new();
@@ -258,4 +260,16 @@ async fn test_buy_tokens() {
         amount,
     );
     banks_client.process_transaction(ts).await.unwrap();
+
+    let b = banks_client.get_account(write_off_account.pubkey()).await.unwrap().unwrap();
+    let acc = Account::unpack_from_slice(&b.data.as_slice()).unwrap();
+    assert!(acc.amount == 30, "Leftover funds are not correct");
+    
+    let b = banks_client.get_account(bank.pubkey()).await.unwrap().unwrap();
+    let acc = Account::unpack_from_slice(&b.data.as_slice()).unwrap();
+    assert!(acc.amount == 70, "The amount of funds is not correct");
+
+    let b = banks_client.get_account(recipient_account.pubkey()).await.unwrap().unwrap();
+    let acc = Account::unpack_from_slice(&b.data.as_slice()).unwrap();
+    assert!(acc.amount == 70, "The amount of funds is not correct");
 }

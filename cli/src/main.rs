@@ -9,19 +9,12 @@ use solana_clap_utils::{
     input_validators::{is_pubkey, is_url_or_moniker, is_valid_signer},
     keypair::signer_from_path,
 };
-use solana_client::{rpc_client::RpcClient, rpc_request::TokenAccountsFilter};
+use solana_client::{rpc_client::RpcClient};
 use solana_sdk::{
     commitment_config::CommitmentConfig,
-    message::Message,
-    program_pack::Pack,
     pubkey::Pubkey,
-    rent::Rent,
     signature::{Keypair, Signer},
-    system_instruction::create_account,
-    transaction::Transaction,
 };
-use spl_token::state::{Account, Mint};
-use std::str::FromStr;
 use token_market::{
     instruction::{
         transaction_initialize,
@@ -48,7 +41,7 @@ fn create_market(config: &Config, mint_of_acceptable: Pubkey) -> Result<()> {
     ).unwrap();
 
     let ts = transaction_initialize(
-        todo!(),
+        config.rpc_client.get_recent_blockhash()?.0,
         config.fee_payer,
         config.owner,
         &market,
@@ -77,7 +70,7 @@ fn buy_tokens(config: &Config, market: Pubkey, recipient: Pubkey, amount: u64) -
     let market_data = config.rpc_client.get_account_data(&market)?;
     let token_market = TokenMarket::try_from_slice(market_data.as_slice())?;
     let market_authority = Pubkey::create_program_address(
-        &[b"tmarket"], 
+        &[&market.to_bytes()[..32]], 
         &token_market::id(),
     ).unwrap();
 
@@ -89,12 +82,12 @@ fn buy_tokens(config: &Config, market: Pubkey, recipient: Pubkey, amount: u64) -
     );
 
     let write_off_account = spl_associated_token_account::get_associated_token_address(
-        &config.owner.pubkey(),
+        &config.fee_payer.pubkey(),
         &token_market.mint_of_acceptable,
     );
 
     let ts = transaction_buy_tokens(
-        todo!(),
+        config.rpc_client.get_recent_blockhash()?.0,
         config.fee_payer,
         config.fee_payer,
         market,

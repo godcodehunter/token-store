@@ -89,8 +89,11 @@ impl Processor {
         }
         let mint_of_acceptable = Mint::unpack_from_slice(&mint_of_acceptable_info.data.borrow())?;
 
-        let pda = Pubkey::create_program_address(&[&market_info.key.to_bytes()], program_id)?;
-        if *authority_market_info.key != pda {
+        let pda = Pubkey::find_program_address(
+            &[&market_info.key.to_bytes()[..32]], 
+            program_id,
+        );
+        if *authority_market_info.key != pda.0 {
             todo!();
         }
 
@@ -128,6 +131,7 @@ impl Processor {
             bank: *bank_info.key,
             emitter_mint: *emitter_info.key,
             mint_of_acceptable: *mint_of_acceptable_info.key,
+            seed: pda.1,
         }
         .serialize(&mut *market_info.data.borrow_mut())?;
 
@@ -145,8 +149,8 @@ impl Processor {
         token_program_info: &AccountInfo<'accounts>,
         amount: u64,
     ) -> ProgramResult {
-        if market_info.owner == program_id {
-            todo!();
+        if market_info.owner != program_id {
+           todo!();
         }
         let token_market = TokenMarket::try_from_slice(*market_info.data.borrow())?;
         if !token_market.is_initialized() {
@@ -188,7 +192,7 @@ impl Processor {
                 write_off_account_info.clone(),
                 bank_info.clone(),
             ],
-            &[&[&market_info.key.to_bytes()]]
+            &[&[&market_info.key.to_bytes()[..32], &[token_market.seed]]],
         )?;
        
         invoke_signed(
@@ -206,7 +210,7 @@ impl Processor {
                 market_info.clone(),
                 recipient_account_info.clone(),
             ],
-            &[&[&market_info.key.to_bytes()]]
+            &[&[&market_info.key.to_bytes()[..32], &[token_market.seed]]],
         )?;
 
         Ok(())
