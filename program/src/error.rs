@@ -13,13 +13,14 @@ use thiserror::Error;
 #[derive(Clone, Debug, Eq, Error, FromPrimitive, PartialEq)]
 pub enum TokenMarketError {
     #[error("insufficient funds")]
-    InsufficientFundsError,
+    IncorrectAuthority,
 }
 impl From<TokenMarketError> for ProgramError {
-    fn from(e: TokenMarketError) -> Self {
-        ProgramError::Custom(e as u32)
+    fn from(error: TokenMarketError) -> Self {
+        ProgramError::Custom(error as u32)
     }
 }
+
 impl<T> DecodeError<T> for TokenMarketError {
     fn type_of() -> &'static str {
         "TokenMarketError"
@@ -32,7 +33,7 @@ impl PrintProgramError for TokenMarketError {
         E: 'static + std::error::Error + DecodeError<E> + PrintProgramError + FromPrimitive,
     {
         match self {
-            TokenMarketError::InsufficientFundsError => msg!("Example error message"),
+            TokenMarketError::IncorrectAuthority => msg!("Example error message"),
         }
     }
 }

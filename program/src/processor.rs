@@ -2,15 +2,25 @@
 
 use std::convert::TryFrom;
 
+use crate::error::TokenMarketError;
 use crate::instruction::TokenMarketInstructions;
 use crate::state::TokenMarket;
 use borsh::{BorshDeserialize, BorshSerialize};
-use solana_program::{account_info::AccountInfo, account_info::next_account_info, entrypoint::ProgramResult, msg, program::{invoke, invoke_signed}, program_error::ProgramError, program_pack::Pack, pubkey::Pubkey};
+use solana_program::{
+    account_info::next_account_info,
+    account_info::AccountInfo,
+    entrypoint::ProgramResult,
+    msg,
+    program::{invoke, invoke_signed},
+    program_error::ProgramError,
+    program_pack::Pack,
+    pubkey::Pubkey,
+};
 use spl_token::{
     self,
     instruction::{initialize_account, initialize_mint, mint_to, transfer},
     solana_program::program_pack::IsInitialized,
-    state::{Mint, Account},
+    state::{Account, Mint},
 };
 
 /// Program state handler.
@@ -28,7 +38,7 @@ impl Processor {
         match instruction {
             TokenMarketInstructions::Initialize => {
                 msg!("Instruction: InitMarket");
-                
+
                 let owner_info = next_account_info(account_info_iter)?;
                 let market_info = next_account_info(account_info_iter)?;
                 let authority_market_info = next_account_info(account_info_iter)?;
@@ -52,7 +62,7 @@ impl Processor {
 
                 let token_market_info = next_account_info(account_info_iter)?;
                 let authority_market_info = next_account_info(account_info_iter)?;
-                let emitter_info  = next_account_info(account_info_iter)?;
+                let emitter_info = next_account_info(account_info_iter)?;
                 let bank_info = next_account_info(account_info_iter)?;
                 let recipient_account_info = next_account_info(account_info_iter)?;
                 let write_off_acc_info = next_account_info(account_info_iter)?;
@@ -76,8 +86,8 @@ impl Processor {
     pub fn process_init_market<'account>(
         program_id: &Pubkey,
         owner_info: &AccountInfo,
-        market_info: &AccountInfo<'account>,
-        authority_market_info: &AccountInfo<'account>,
+        market_info: &AccountInfo,
+        authority_market_info: &AccountInfo,
         bank_info: &AccountInfo<'account>,
         emitter_info: &AccountInfo<'account>,
         mint_of_acceptable_info: &AccountInfo<'account>,
@@ -89,12 +99,10 @@ impl Processor {
         }
         let mint_of_acceptable = Mint::unpack_from_slice(&mint_of_acceptable_info.data.borrow())?;
 
-        let pda = Pubkey::find_program_address(
-            &[&market_info.key.to_bytes()[..32]], 
-            program_id,
-        );
-        if *authority_market_info.key != pda.0 {
-            todo!();
+        let (key, seed) =
+            Pubkey::find_program_address(&[&market_info.key.to_bytes()[..32]], program_id);
+        if *authority_market_info.key != key {
+            return Err(TokenMarketError::IncorrectAuthority.into());
         }
 
         invoke(
@@ -108,21 +116,18 @@ impl Processor {
                 token_program_info.clone(),
                 bank_info.clone(),
                 mint_of_acceptable_info.clone(),
-            ]
+            ],
         )?;
-        
+
         invoke(
             &initialize_mint(
                 &spl_token::id(),
                 emitter_info.key,
                 &authority_market_info.key,
-                Some(&authority_market_info.key),
+                None,
                 mint_of_acceptable.decimals,
             )?,
-            &[
-                token_program_info.clone(),
-                emitter_info.clone(),
-            ]
+            &[token_program_info.clone(), emitter_info.clone()],
         )?;
 
         TokenMarket {
@@ -131,7 +136,7 @@ impl Processor {
             bank: *bank_info.key,
             emitter_mint: *emitter_info.key,
             mint_of_acceptable: *mint_of_acceptable_info.key,
-            seed: pda.1,
+            seed,
         }
         .serialize(&mut *market_info.data.borrow_mut())?;
 
@@ -141,7 +146,7 @@ impl Processor {
     pub fn process_buy_tokens<'accounts>(
         program_id: &Pubkey,
         market_info: &AccountInfo<'accounts>,
-        authority_market_info: &AccountInfo<'accounts>,
+        authority_market_info: &AccountInfo,
         emitter_info: &AccountInfo<'accounts>,
         bank_info: &AccountInfo<'accounts>,
         recipient_account_info: &AccountInfo<'accounts>,
@@ -150,7 +155,7 @@ impl Processor {
         amount: u64,
     ) -> ProgramResult {
         if market_info.owner != program_id {
-           todo!();
+            return Err(ProgramError::IncorrectProgramId);
         }
         let token_market = TokenMarket::try_from_slice(*market_info.data.borrow())?;
         if !token_market.is_initialized() {
@@ -158,26 +163,12 @@ impl Processor {
         }
 
         let write_off_account = Account::unpack_from_slice(*write_off_account_info.data.borrow())?;
-        if !write_off_account.is_initialized() {
-            return Err(ProgramError::UninitializedAccount);
-        }
-        if write_off_account.mint != token_market.mint_of_acceptable {
-            return Err(ProgramError::InvalidAccountData);
-        }
-
-        let recipient_account = Account::unpack_from_slice(*recipient_account_info.data.borrow())?;
-        if !recipient_account.is_initialized() {
-            return Err(ProgramError::UninitializedAccount);
-        }
-        if recipient_account.mint != token_market.emitter_mint {
-            return Err(ProgramError::InvalidAccountData);
-        }
 
         // check that there are enough tokens to exchange the requested number of tokens
         if write_off_account.amount < amount {
             return Err(ProgramError::InsufficientFunds);
         }
-        
+
         invoke_signed(
             &transfer(
                 &spl_token::id(),
@@ -194,7 +185,7 @@ impl Processor {
             ],
             &[&[&market_info.key.to_bytes()[..32], &[token_market.seed]]],
         )?;
-       
+
         invoke_signed(
             &mint_to(
                 &spl_token::id(),

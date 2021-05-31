@@ -42,12 +42,12 @@ fn create_market(config: &Config, mint_of_acceptable: Pubkey) -> Result<()> {
 
     let ts = transaction_initialize(
         config.rpc_client.get_recent_blockhash()?.0,
-        config.fee_payer,
-        config.owner,
-        &market,
+        config.fee_payer.as_ref() as &dyn Signer,
+        &config.owner.pubkey(),
+        &market as &dyn Signer,
         &market_authority,
-        &bank,
-        &emitter,
+        &bank as &dyn Signer,
+        &emitter as &dyn Signer,
         &mint_of_acceptable,
     );    
     config
@@ -88,8 +88,8 @@ fn buy_tokens(config: &Config, market: Pubkey, recipient: Pubkey, amount: u64) -
 
     let ts = transaction_buy_tokens(
         config.rpc_client.get_recent_blockhash()?.0,
-        config.fee_payer,
-        config.fee_payer,
+        config.fee_payer.as_ref() as &dyn Signer,
+        config.fee_payer.as_ref() as &dyn Signer,
         market,
         market_authority,
         token_market.emitter_mint,

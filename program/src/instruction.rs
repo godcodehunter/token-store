@@ -1,23 +1,24 @@
 //! Instruction types
 
+use crate::state::*;
 use borsh::{BorshDeserialize, BorshSerialize};
+use solana_program::program_pack::Pack;
 use solana_program::{
     instruction::{AccountMeta, Instruction},
     program_error::ProgramError,
     pubkey::Pubkey,
-    sysvar
+    sysvar,
 };
-use crate::state::*;
-use solana_program::program_pack::Pack;
-use spl_token::state::{Account, Mint};
 #[cfg(feature = "solana-sdk")]
 use solana_sdk::{
+    signers::Signers,
     hash::Hash,
     rent::Rent,
-    transaction::Transaction,
     signature::{Keypair, Signer},
     system_instruction::create_account,
+    transaction::Transaction,
 };
+use spl_token::state::{Account, Mint};
 
 /// Instruction definition
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug, Clone)]
@@ -32,17 +33,17 @@ pub enum TokenMarketInstructions {
     /// 3. `[WRITE]` Bank account that collect gotten token
     /// 4. `[WRITE]` Mint that emit token
     /// 5. `[]` Mint of that token we accept for trade
-    /// 6. `[]` Token program 
+    /// 6. `[]` Token program
     /// 7. `[]` Rent sysvar
     Initialize,
     /// Buy tokens
     ///
     /// 0. `[]` Tokens market
     /// 1. `[]` Market authority
-    /// 2. `[WRITE]` Emitter mint 
+    /// 2. `[WRITE]` Emitter mint
     /// 3. `[WRITE]` Bank
     /// 4. `[WRITE]` Tokens recipient account
-    /// 5. `[]` Write-off account 
+    /// 5. `[]` Write-off account
     /// 6. `[]` The token program
     /// 7. `[]` Rent sysvar
     BuyTokens { amount: u64 },
@@ -50,14 +51,12 @@ pub enum TokenMarketInstructions {
 
 /// Create `Example` instruction
 pub fn initialize(
-    program_id: &Pubkey,
     owner: &Pubkey,
     market: &Pubkey,
     authority: &Pubkey,
     bank: &Pubkey,
     emitter: &Pubkey,
     acceptable: &Pubkey,
-    token_program: &Pubkey,
 ) -> Result<Instruction, ProgramError> {
     let accounts = vec![
         AccountMeta::new_readonly(*owner, false),
@@ -66,12 +65,12 @@ pub fn initialize(
         AccountMeta::new(*bank, false),
         AccountMeta::new(*emitter, false),
         AccountMeta::new_readonly(*acceptable, false),
-        AccountMeta::new_readonly(*token_program, false),
+        AccountMeta::new_readonly(spl_token::id(), false),
         AccountMeta::new_readonly(sysvar::rent::id(), false),
     ];
 
     Ok(Instruction::new_with_borsh(
-        *program_id,
+        crate::id(),
         &TokenMarketInstructions::Initialize,
         accounts,
     ))
@@ -79,14 +78,12 @@ pub fn initialize(
 
 /// Create `BuyTokens` instruction
 pub fn buy_tokens(
-    program_id: &Pubkey,
     market: &Pubkey,
     authority: &Pubkey,
-    emitter:  &Pubkey,
+    emitter: &Pubkey,
     bank: &Pubkey,
     recipient_account: &Pubkey,
     write_off_acc: &Pubkey,
-    token_program: &Pubkey,
     amount: u64,
 ) -> Result<Instruction, ProgramError> {
     let accounts = vec![
@@ -96,28 +93,31 @@ pub fn buy_tokens(
         AccountMeta::new(*bank, false),
         AccountMeta::new(*recipient_account, false),
         AccountMeta::new_readonly(*write_off_acc, false),
-        AccountMeta::new_readonly(*token_program, false),
+        AccountMeta::new_readonly(spl_token::id(), false),
         AccountMeta::new_readonly(sysvar::rent::id(), false),
     ];
 
     Ok(Instruction::new_with_borsh(
-        *program_id,
+        crate::id(),
         &TokenMarketInstructions::BuyTokens { amount },
         accounts,
     ))
 }
 
 #[cfg(feature = "solana-sdk")]
-pub fn transaction_initialize(
+pub fn transaction_initialize<'s, T: Signer + ?Sized>(
     recent_blockhash: Hash,
-    payer: &Keypair, 
-    owner: &Pubkey, 
-    market: &Keypair,
+    payer: &'s T,
+    owner: &Pubkey,
+    market: &'s T,
     authority: &Pubkey,
-    bank: &Keypair,
-    emitter: &Keypair,
+    bank: &'s T,
+    emitter: &'s T,
     mint_of_acceptable: &Pubkey,
-) -> Transaction {
+) -> Transaction
+where
+    Vec<&'s T>: Signers,
+{
     let instructions = &[
         create_account(
             &payer.pubkey(),
@@ -141,45 +141,39 @@ pub fn transaction_initialize(
             &spl_token::id(),
         ),
         initialize(
-            &crate::id(),
             owner,
             &market.pubkey(),
             authority,
             &bank.pubkey(),
             &emitter.pubkey(),
             mint_of_acceptable,
-            &spl_token::id(),
-        ).unwrap(),
+        )
+        .unwrap(),
     ];
 
-    let mut ts = Transaction::new_with_payer(
-        instructions, 
-        Some(&payer.pubkey())
-    );
-    let signers = &vec![
-        payer as &dyn Signer,
-        market as &dyn Signer,
-        bank as &dyn Signer,
-        emitter as &dyn Signer,
-    ];
+    let mut ts = Transaction::new_with_payer(instructions, Some(&payer.pubkey()));
+    let signers = &vec![payer, market, bank, emitter];
     ts.sign(signers, recent_blockhash);
-    
+
     ts
 }
 
 #[cfg(feature = "solana-sdk")]
-pub fn transaction_buy_tokens(
+pub fn transaction_buy_tokens<'s, T: Signer + ?Sized>(
     recent_blockhash: Hash,
-    fee_payer: Keypair,
-    buyer: Keypair,
-    market: Pubkey, 
-    market_authority: Pubkey, 
-    emitter: Pubkey, 
+    fee_payer: &'s T,
+    buyer: &'s T,
+    market: Pubkey,
+    market_authority: Pubkey,
+    emitter: Pubkey,
     bank: Pubkey,
     recipient_account: Pubkey,
     write_off_account: Pubkey,
     amount: u64,
-) -> Transaction {
+) -> Transaction
+where
+    Vec<&'s T>: Signers,
+{
     let instructions = &[
         spl_token::instruction::approve(
             &spl_token::id(),
@@ -188,26 +182,22 @@ pub fn transaction_buy_tokens(
             &buyer.pubkey(),
             &[&buyer.pubkey()],
             amount,
-        ).unwrap(),
+        )
+        .unwrap(),
         buy_tokens(
-            &crate::id(),
             &market,
             &market_authority,
             &emitter,
             &bank,
             &recipient_account,
             &write_off_account,
-            &spl_token::id(),
             amount,
-        ).unwrap(),
+        )
+        .unwrap(),
     ];
 
-    let mut ts = Transaction::new_with_payer(
-        instructions, 
-        Some(&fee_payer.pubkey())
-    );
-    ts.sign(&vec![&fee_payer, &buyer], recent_blockhash);
+    let mut ts = Transaction::new_with_payer(instructions, Some(&fee_payer.pubkey()));
+    ts.sign(&vec![fee_payer, buyer], recent_blockhash);
 
     ts
 }
-

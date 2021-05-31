@@ -14,11 +14,11 @@ pub struct TokenMarket {
 }
 
 impl TokenMarket {
-    pub const LEN: usize = 32*4 + 2;
+    pub const LEN: usize = 32 * 4 + 2;
 }
 
 impl IsInitialized for TokenMarket {
     fn is_initialized(&self) -> bool {
-        self.is_initialized 
+        self.is_initialized
     }
 }
